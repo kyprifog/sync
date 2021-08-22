@@ -59,11 +59,15 @@ func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	}
 }
 
-func drawButton(s tcell.Screen, x0, y0 , x1, y1 int, text string, outofdate bool) {
+func drawButton(s tcell.Screen, x0, y0 , x1, y1 int, text string, outofdate, local_changes bool) {
 	green := tcell.StyleDefault.Foreground(tcell.ColorGreen).Background(tcell.ColorBlack)
 	red := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
+	yellow := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(tcell.ColorBlack)
 
 	color := green
+	if local_changes {
+		color = yellow
+	}
 	if outofdate {
 		color = red
 	}
@@ -93,16 +97,28 @@ func get_repos() ([]map[string]interface{}, error) {
 
 	for _, el := range all_repos {
 		out_of_date := false
-		status_cmds := []string{}
-		status_cmds = append(status_cmds, "./status_cmd")
-		status_cmds = append(status_cmds, el["path"].(string))
-		output := run_commands(status_cmds)
+		local_changes := false
+		remote_status_cmd := []string{}
+		remote_status_cmd = append(remote_status_cmd, "./status_cmd")
+		remote_status_cmd = append(remote_status_cmd, el["path"].(string))
+		remote_output := run_commands(remote_status_cmd)
 
-		if strings.Contains(output, "out of date") {
+		local_status_cmd := []string{}
+		local_status_cmd = append(local_status_cmd, "./local_status_cmd")
+		local_status_cmd = append(local_status_cmd, el["path"].(string))
+		local_output := run_commands(local_status_cmd)
+
+		if strings.Contains(remote_output, "out of date") {
 			out_of_date = true
 		}
 
+		if strings.Contains(local_output, "Changes not staged") || strings.Contains(local_output,
+			"Changes to be committed") {
+			local_changes = true
+		}
+
 		el["out_of_date"] = out_of_date
+		el["local_changes"] = local_changes
 
 	}
 
@@ -148,6 +164,7 @@ func render_repos(s tcell.Screen, x, y, x_spacing int, repos []map[string]interf
 		path := el["path"].(string)
 		push := el["push"].(bool)
 		out_of_date := el["out_of_date"].(bool)
+		local_changes := el["local_changes"].(bool)
 		x0 := 1 + ((column - 1) * (max_length + 5 + x_spacing))
 		y0 := 1 + ((row -1) * 4)
 		x1 := x0 + (max_length + 5)
@@ -168,10 +185,11 @@ func render_repos(s tcell.Screen, x, y, x_spacing int, repos []map[string]interf
 		if l <= max_length {
 			padding := (max_length - l) / 2
 		 	padded_name := strings.Repeat(" ", padding) + name + strings.Repeat(" ", padding)
-		 	drawButton(s, x0, y0, x1, y1, padded_name, out_of_date)
+		 	drawButton(s, x0, y0, x1, y1, padded_name, out_of_date, local_changes)
 		} else {
-			truncated_name := name[0:max_length-3] + "..."
-			drawButton(s, x0, y0, x1, y1, truncated_name, out_of_date)
+			//truncated_name := name[0:max_length-3] + "..."
+			truncated_name := name
+			drawButton(s, x0, y0, x1, y1, truncated_name, out_of_date, local_changes)
 		}
 
 		column += 1
