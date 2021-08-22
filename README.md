@@ -11,6 +11,11 @@ This displays to you whether the branch is out of date or not.  Red == Remote ha
 go build
 ```
 
+```
+./sync [REPOS_CONFIG_PATH]
+
+```
+
 Then place a repos.yaml file at `~/.repos.yaml` resembling:
 
 ```

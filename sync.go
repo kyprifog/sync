@@ -81,8 +81,8 @@ func repos_path() string {
 	return filepath.Join(dir, "/.repos.yaml")
 }
 
-func get_repos() ([]map[string]interface{}, error) {
-	yamlFile, err := ioutil.ReadFile(repos_path())
+func get_repos(path string) ([]map[string]interface{}, error) {
+	yamlFile, err := ioutil.ReadFile(path)
 
 	type RepoConfig struct {
 		Repos []map[string]interface{}
@@ -98,24 +98,20 @@ func get_repos() ([]map[string]interface{}, error) {
 	for _, el := range all_repos {
 		out_of_date := false
 		local_changes := false
-		remote_status_cmd := []string{}
-		remote_status_cmd = append(remote_status_cmd, "./status_cmd")
-		remote_status_cmd = append(remote_status_cmd, el["path"].(string))
-		remote_output := run_commands(remote_status_cmd)
+		status_cmd := []string{}
+		status_cmd = append(status_cmd, "./status_cmd")
+		status_cmd = append(status_cmd, el["path"].(string))
+		output := run_commands(status_cmd)
 
-		local_status_cmd := []string{}
-		local_status_cmd = append(local_status_cmd, "./local_status_cmd")
-		local_status_cmd = append(local_status_cmd, el["path"].(string))
-		local_output := run_commands(local_status_cmd)
-
-		if strings.Contains(remote_output, "out of date") {
+		if strings.Contains(output, "branch is behind") {
 			out_of_date = true
 		}
 
-		if strings.Contains(local_output, "Changes not staged") || strings.Contains(local_output,
+		if strings.Contains(output, "Changes not staged") || strings.Contains(output,
 			"Changes to be committed") {
 			local_changes = true
 		}
+
 
 		el["out_of_date"] = out_of_date
 		el["local_changes"] = local_changes
@@ -171,12 +167,12 @@ func render_repos(s tcell.Screen, x, y, x_spacing int, repos []map[string]interf
 		y1 := y0 + 2
 		if (x < x1) && (x > x0) {
 			if (y < y1) && (y > y0) {
-				name = syncing_message
-				run_app = append(run_app, "./sync_cmd")
-				run_app = append(run_app, path)
-				if push == true {
-					run_app = append(run_app, "push")
-				}
+				 name = syncing_message
+				 run_app = append(run_app, "./sync_cmd")
+				 run_app = append(run_app, path)
+				 if push == true {
+					  run_app = append(run_app, "push")
+				 }
 			}
 		}
 
@@ -205,6 +201,10 @@ func render_repos(s tcell.Screen, x, y, x_spacing int, repos []map[string]interf
 var defStyle tcell.Style
 
 func main() {
+	path := repos_path()
+	if len(os.Args) > 1 {
+		path = os.Args[1]
+	}
 
 	s, e := tcell.NewScreen()
 
@@ -221,21 +221,19 @@ func main() {
 
 	defStyle = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 
-
 	s.SetStyle(defStyle)
 	s.EnableMouse()
 
 	s.Clear()
 	x_spacing := 3
-	//offset_y := 1
-	repos, _ := get_repos()
+	repos, _ := get_repos(path)
 
 	render_repos(s, 0, 0, x_spacing, repos)
 
 	s.Show()
-	ecnt := 0
 
 	go func() {
+		ecnt := 0
 		for {
 			ev := s.PollEvent()
 			switch ev := ev.(type) {
@@ -256,7 +254,7 @@ func main() {
 					s.Show()
 					run_commands(app_commands)
 					s.Clear()
-					repos, _ = get_repos()
+					repos, _ = get_repos(path)
 					render_repos(s, 0, 0, x_spacing, repos)
 					s.Show()
 				}
@@ -269,7 +267,7 @@ func main() {
 		select {
 		case <-t.C:
 			s.Clear()
-			repos, _ = get_repos()
+			repos, _ = get_repos(path)
 			render_repos(s, 0, 0, x_spacing, repos)
 			s.Show()
 		}
