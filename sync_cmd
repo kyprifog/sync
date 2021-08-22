@@ -1,0 +1,14 @@
+#!/bin/bash
+
+cd $1
+git pull -X theirs
+
+if [ -z "$2" ]
+then
+  echo "pass"
+else
+  git add .
+  git commit -m "Auto update"
+  git push
+fi
+
