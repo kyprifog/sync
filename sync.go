@@ -206,6 +206,7 @@ func main() {
 		path = os.Args[1]
 	}
 
+
 	s, e := tcell.NewScreen()
 
 	encoding.Register()
@@ -225,8 +226,9 @@ func main() {
 	s.EnableMouse()
 
 	s.Clear()
-	x_spacing := 3
 	repos, _ := get_repos(path)
+
+	x_spacing := 3
 
 	render_repos(s, 0, 0, x_spacing, repos)
 
