@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -59,20 +61,51 @@ func emitStr(s tcell.Screen, x, y int, style tcell.Style, str string) {
 	}
 }
 
-func drawButton(s tcell.Screen, x0, y0 , x1, y1 int, text string, outofdate, local_changes bool) {
+func max_length() int {
+	return 10
+}
+
+func drawButton(s tcell.Screen, row, column, x_spacing int, text string, outofdate, local_changes,
+	check,
+	sync bool) {
 	green := tcell.StyleDefault.Foreground(tcell.ColorGreen).Background(tcell.ColorBlack)
 	red := tcell.StyleDefault.Foreground(tcell.ColorRed).Background(tcell.ColorBlack)
+	blue := tcell.StyleDefault.Foreground(tcell.ColorBlue).Background(tcell.ColorBlack)
 	yellow := tcell.StyleDefault.Foreground(tcell.ColorYellow).Background(tcell.ColorBlack)
+	max_length := max_length()
+
+	x0 := 1 + ((column - 1) * (max_length + 5 + x_spacing))
+	y0 := 1 + ((row - 1) * 4)
+	x1 := x0 + (max_length + 5)
+	y1 := y0 + 2
 
 	color := green
+	message := text
+
 	if local_changes {
 		color = yellow
 	}
 	if outofdate {
 		color = red
 	}
-	drawBox(s, x0, y0, x1, y1 , color, ' ')
-	emitStr(s, x0 + 3, y0 +1, color, text)
+	if check {
+		color = blue
+	}
+	if sync {
+		message = "syncing..."
+	}
+
+	l := len(message)
+
+	drawBox(s, x0, y0, x1, y1, color, ' ')
+	if len(message) <= max_length {
+		padding := (max_length - l) / 2
+		padded_message := strings.Repeat(" ", padding) + message + strings.Repeat(" ", padding)
+		emitStr(s, x0+3, y0+1, color, padded_message)
+	} else {
+		truncated_message := message[0:max_length-3] + "..."
+		emitStr(s, x0+3, y0+1, color, truncated_message)
+	}
 }
 
 func repos_path() string {
@@ -81,7 +114,7 @@ func repos_path() string {
 	return filepath.Join(dir, "/.repos.yaml")
 }
 
-func get_repos(path string) ([]map[string]interface{}, error) {
+func get_repos(path string, check bool) ([]map[string]interface{}, error) {
 	yamlFile, err := ioutil.ReadFile(path)
 
 	type RepoConfig struct {
@@ -96,48 +129,34 @@ func get_repos(path string) ([]map[string]interface{}, error) {
 	all_repos := repos.Repos
 
 	for _, el := range all_repos {
-		out_of_date := false
-		local_changes := false
-		status_cmd := []string{}
-		status_cmd = append(status_cmd, "./status_cmd")
-		status_cmd = append(status_cmd, el["path"].(string))
-		output := run_commands(status_cmd)
-
-		if strings.Contains(output, "branch is behind") {
-			out_of_date = true
-		}
-
-		if strings.Contains(output, "Changes not staged") || strings.Contains(output,
-			"Changes to be committed") {
-			local_changes = true
-		}
-
-
-		el["out_of_date"] = out_of_date
-		el["local_changes"] = local_changes
-
+		el["out_of_date"] = false
+		el["local_changes"] = false
+		el["sync"] = false
+		el["check"] = check
 	}
 
-
+	sort_repos(all_repos)
 	return all_repos, err
 }
 
-func num_columns() int {
-	return 3
+func sort_repos(repos []map[string]interface{}) {
+	sort.Slice(repos, func(i, j int) bool {
+		return repos[i]["name"].(string) < repos[j]["name"].(string)
+	})
 }
 
-func run_commands(app_commands []string) string {
+func run_command(app_command []string) string {
 	stdout := ""
-	if len(app_commands) >= 2 {
-		if len(app_commands) == 3 {
-			cmd := exec.Command(app_commands[0], app_commands[1], app_commands[2])
+	if len(app_command) >= 2 {
+		if len(app_command) == 3 {
+			cmd := exec.Command(app_command[0], app_command[1], app_command[2])
 			stdout, err := cmd.Output()
 			if err != nil {
 				print(err.Error())
 			}
 			return string(stdout)
-		} else if len(app_commands) == 2 {
-			cmd := exec.Command(app_commands[0], app_commands[1])
+		} else if len(app_command) == 2 {
+			cmd := exec.Command(app_command[0], app_command[1])
 			stdout, err := cmd.Output()
 			if err != nil {
 				print(err.Error())
@@ -148,64 +167,130 @@ func run_commands(app_commands []string) string {
 	return stdout
 }
 
-func render_repos(s tcell.Screen, x, y, x_spacing int, repos []map[string]interface{}) []string {
+func click_repos(x, y int, repos []map[string]interface{}) []map[string]interface{} {
 	column := 1
 	row := 1
-	syncing_message := "syncing..."
-	max_length := len(syncing_message)
-	run_app := []string{}
+	max_columns := 3
+	x_spacing := 3
 
-	for _, el :=  range repos {
-		name := el["name"].(string)
-		path := el["path"].(string)
-		push := el["push"].(bool)
-		out_of_date := el["out_of_date"].(bool)
-		local_changes := el["local_changes"].(bool)
+	max_length := max_length()
+
+	for _, el := range repos {
 		x0 := 1 + ((column - 1) * (max_length + 5 + x_spacing))
-		y0 := 1 + ((row -1) * 4)
+		y0 := 1 + ((row - 1) * 4)
 		x1 := x0 + (max_length + 5)
 		y1 := y0 + 2
 		if (x < x1) && (x > x0) {
 			if (y < y1) && (y > y0) {
-				 name = syncing_message
-				 run_app = append(run_app, "./sync_cmd")
-				 run_app = append(run_app, path)
-				 if push == true {
-					  run_app = append(run_app, "push")
-				 }
+				el["sync"] = true
 			}
 		}
 
-		l := len(name)
-
-		if l <= max_length {
-			padding := (max_length - l) / 2
-		 	padded_name := strings.Repeat(" ", padding) + name + strings.Repeat(" ", padding)
-		 	drawButton(s, x0, y0, x1, y1, padded_name, out_of_date, local_changes)
-		} else {
-			//truncated_name := name[0:max_length-3] + "..."
-			truncated_name := name
-			drawButton(s, x0, y0, x1, y1, truncated_name, out_of_date, local_changes)
+		column += 1
+		if column > max_columns {
+			row += 1
+			column = 1
 		}
+	}
+	return repos
+}
+
+func render_repos(s tcell.Screen, repos []map[string]interface{}) []string {
+	column := 1
+	row := 1
+	run_app := []string{}
+	max_columns := 3
+	x_spacing := 3
+
+	for _, el := range repos {
+		name := el["name"].(string)
+		out_of_date := el["out_of_date"].(bool)
+		local_changes := el["local_changes"].(bool)
+		sync := el["sync"].(bool)
+		check := el["check"].(bool)
+
+		drawButton(s, row, column, x_spacing, name, out_of_date, local_changes, check, sync)
 
 		column += 1
-		if column > num_columns() {
+		if column > max_columns {
 			row += 1
 			column = 1
 		}
 	}
 	return run_app
+}
 
+func run_action(wg *sync.WaitGroup, el map[string]interface{}, out chan map[string]interface{}) {
+	defer wg.Done()
+	cmd := []string{}
+	sync := el["sync"].(bool)
+	check := el["check"].(bool)
+	path := el["path"].(string)
+	if sync == true {
+		push := el["push"].(bool)
+		cmd = append(cmd, "./sync_cmd")
+		cmd = append(cmd, path)
+		if push == true {
+			cmd = append(cmd, "push")
+			el["local_changes"] = false
+		}
+		run_command(cmd)
+		el["sync"] = false
+		el["out_of_date"] = false
+		out <- el
+	} else if check == true {
+		cmd = append(cmd, "./status_cmd")
+		cmd = append(cmd, path)
+		output := run_command(cmd)
+
+		if strings.Contains(output, "branch is behind") {
+			el["out_of_date"] = true
+		}
+
+		if strings.Contains(output, "Changes not staged") || strings.Contains(output, "Changes to be committed") {
+			el["local_changes"] = true
+		}
+
+		el["check"] = false
+		out <- el
+	} else {
+		out <- el
+	}
+}
+
+func run_actions(repos []map[string]interface{}) []map[string]interface{} {
+	var new_repos = []map[string]interface{}{}
+	var wg sync.WaitGroup
+
+	out := make(chan map[string]interface{})
+
+	for _, el := range repos {
+		wg.Add(1)
+		go run_action(&wg, el, out)
+	}
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	for i := range out {
+		 new_repos = append(new_repos, i)
+	}
+
+	sort_repos(new_repos)
+
+	return new_repos
 }
 
 var defStyle tcell.Style
 
 func main() {
+	ecnt := 0
 	path := repos_path()
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
-
 
 	s, e := tcell.NewScreen()
 
@@ -225,17 +310,16 @@ func main() {
 	s.SetStyle(defStyle)
 	s.EnableMouse()
 
+	repos, _ := get_repos(path, true)
+	render_repos(s, repos)
+	s.Show()
+	new_repos := run_actions(repos)
 	s.Clear()
-	repos, _ := get_repos(path)
-
-	x_spacing := 3
-
-	render_repos(s, 0, 0, x_spacing, repos)
-
+	render_repos(s, new_repos)
 	s.Show()
 
 	go func() {
-		ecnt := 0
+
 		for {
 			ev := s.PollEvent()
 			switch ev := ev.(type) {
@@ -252,28 +336,32 @@ func main() {
 				switch ev.Buttons() {
 				case tcell.Button1, tcell.Button2, tcell.Button3:
 					x, y := ev.Position()
-					app_commands := render_repos(s, x, y, x_spacing, repos)
-					s.Show()
-					run_commands(app_commands)
+					clicked_repos := click_repos(x, y, new_repos)
 					s.Clear()
-					repos, _ = get_repos(path)
-					render_repos(s, 0, 0, x_spacing, repos)
+					render_repos(s, clicked_repos)
+					s.Show()
+					runned_repos := run_actions(clicked_repos)
+					s.Clear()
+					render_repos(s, runned_repos)
 					s.Show()
 				}
 			}
 		}
+
 	}()
 
 	t := time.NewTicker(time.Second * 10)
 	for {
 		select {
 		case <-t.C:
+			for _, el := range new_repos {
+				el["check"] = true
+			}
+			runned_repos := run_actions(new_repos)
 			s.Clear()
-			repos, _ = get_repos(path)
-			render_repos(s, 0, 0, x_spacing, repos)
+			render_repos(s, runned_repos)
 			s.Show()
 		}
 	}
 
 }
-
