@@ -7,6 +7,8 @@ This is a github sync tool.  Currently only works with master branch.  Its inten
 
 This displays to you whether the branch is out of date or not.  Red == Remote has changes which you do not have locally. Yellow == Local changes not pushed up to remote.  Pressing the button will then sync it (pull down prioritizing `theirs`).  Typically for a master branch you are not making changes directly so this is ideal.
 
+Sync is powered by ![tcell](https://github.com/gdamore/tcell)
+
 ## Usage
 
 ```
