@@ -31,4 +31,4 @@ repos:
 
 Push determines whether or not you want this tool to automatically push local changes when pressing sync (in some scenarios this may not be ideal since you want to tailor the commit message).
 
-Run using `./todo`, quit by pressing `Esc + Esc`
+Run using `./sync`, quit by pressing `Esc + Esc`
